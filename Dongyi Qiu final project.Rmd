@@ -1,0 +1,249 @@
+---
+title: "Final project"
+author: "Dongyi Qiu"
+date: '2022-03-04'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+Introduction
+================
+In this project. I'm going to discuss the correlation between the COVID-19 cases that are detected and the death cases of COVID-19 in the last 2 years. This project is based on the data from Centers for Disease and Prevention. The data set include date, number of new cases per million, number of death per million, median age, GDP per capita and extreme poverty rate.I'm interested in these following questions.
+
+1. Is the median age related to the affection rate and the death rate?
+
+2. What is the relationship between the gdp and the affection rate and the death rate.
+
+3. I will go further to explore the interaction terms.
+
+The data set have many NA values. I dropped the NA values in the data set. And I selected the countries with extreme poverty rate to be below 10 to fit the model. For data from countries with a high poverty rate is of low accuracy.
+
+Data cleaning and exploration
+================
+```{r}
+covid.raw=read.csv("C:/Users/13067/Desktop/owid-covid-data.csv")
+```
+
+
+```{r}
+head(covid.raw)
+```
+
+
+```{r}
+covid=covid.raw[,c(1,2,3,4,5,10,11,13,14,15,42, 50,51,54,55)]
+tal=covid[which(covid$date=="2022-03-03"),]
+tal[,1]=as.factor(tal[,1])
+tal[,2]=as.factor(tal[,2])
+tal[,3]=as.factor(tal[,3])
+covid=na.omit(covid)
+tal=na.omit(tal)
+```
+```{r}
+sum(is.na(tal))
+sum(is.na(covid))
+covid_=covid
+```
+```{r}
+covid=covid[c(which(covid$continent=="Europe"),which(covid$continent=="Asia"),which(covid$continent=="North America")),]
+```
+
+
+```{r}
+library("dplyr")
+library("plyr")
+date=seq(as.Date("2020-01-22"), as.Date("2022-03-03"), "days")
+date1=data.frame(date)
+j=0
+c=0
+week=vector()
+for (i in date) {
+  if(j==0){
+    c=c+1
+  }
+  week=rbind(week,c)
+  j = j+1
+  j=j%%7
+}
+help=cbind(date1,week)
+covid_week=join(covid, help, by = NULL, type = 'left', match = 'all')
+```
+
+```{r}
+hist(tal$total_cases, main="total cases")
+hist(tal$total_deaths_per_million, main="total deaths")
+```
+```{r}
+par(mfrow=c(2,2))
+boxplot(tal$gdp_per_capita, main="GDP per capita")
+boxplot(tal$total_cases_per_million, main="total cases per million")
+boxplot(tal$total_deaths_per_million, main="total deaths per million")
+boxplot(tal$people_vaccinated_per_hundred, main="people vaccinated per hundred")
+```
+```{r}
+names=c("Others","Africa" ,"Asia", "Europe", "North America", "Oceania", "South America
+")
+cols = c("#ED1C24","#22B14C","#FFC90E","#3f48CC","#7FFFD4", "#CDAA7D", "#FF7F00")
+covid_omit=na.omit(covid_)
+tal_case_continent=data.frame(tapply(covid_omit$total_cases_per_million, covid_omit$continent, sum))
+tal_case_continent=cbind(tal_case_continent,row.names(tal_case_continent))
+tal_death_continent=data.frame(tapply(covid_omit$total_deaths_per_million, covid_omit$continent, sum))
+tal_death_continent=cbind(tal_death_continent,row.names(tal_death_continent))
+extreme_poverty_continent=data.frame(tapply(covid_omit$extreme_poverty, covid_omit$continent, sum))
+extreme_poverty_continent=cbind(extreme_poverty_continent,row.names(extreme_poverty_continent))
+pie(tal_case_continent$tapply.covid_omit.total_cases_per_million..covid_omit.continent.., labels=names, col=cols, main="Total cases in different continent" )
+pie(tal_death_continent$tapply.covid_omit.total_deaths_per_million..covid_omit.continent.., labels=names, col=cols,main="Total deaths in different continent")
+pie(extreme_poverty_continent$tapply.covid_omit.extreme_poverty..covid_omit.continent..sum., labels=names, col=cols,main="Extreme proverty in different continent")
+```
+
+Modeling
+==============
+Firstly, we are going to explore the relationship between the vaccination rate and the total case per million. First, I tried One-way ANOVA.
+```{r}
+tal=na.omit(tal)
+lm_total_cases=lm(total_cases_per_million~people_vaccinated_per_hundred,data=tal)
+summary(lm_total_cases)
+```
+```{r}
+par(mfrow=c(2,2))
+plot(lm_total_cases)
+```
+The qqplot is right skewed. Therefore we do a coxbox transformation to the Y variable.
+```{r}
+library(MASS)
+boxcox(lm_total_cases)
+```
+```{r}
+par(mfrow=c(2,2))
+lm_total_cases2=lm(I(total_cases_per_million)^0.4~people_vaccinated_per_hundred,data=tal)
+plot(lm_total_cases2)
+```
+```{r}
+anova(lm_total_cases2)
+```
+From model lm_total_cases2 we can see that the vaccinated rate isn't  correlated to the infection rate of COVID-19. We will continue to add more variables into the model.
+
+I include the gdp per capita into the model. To see whether GDP per capita have anything to do with the affection rate and the vaccination rate. Firstly, I will test the interation term.
+```{r}
+reduced_model=lm(I(total_cases_per_million)^0.4~people_vaccinated_per_hundred+gdp_per_capita, data=tal)
+full_model=lm(I(total_cases_per_million)^0.4~people_vaccinated_per_hundred+gdp_per_capita+people_vaccinated_per_hundred*gdp_per_capita, data=tal)
+anova(reduced_model,full_model)
+```
+The F value is significant. Therefore, we have to include the interaction term into the two-way ANOVA model.
+```{r}
+two_way_model=lm(I(total_cases_per_million)^0.4~people_vaccinated_per_hundred+gdp_per_capita+people_vaccinated_per_hundred*gdp_per_capita, data=tal)
+par(mfrow=c(2,2))
+plot(two_way_model)
+summary(two_way_model)
+
+```
+
+
+Next we include other variables that may be relative into the model and use the BIC stepwise method to choose the best model.
+```{r}
+full_model2=lm(I(total_cases_per_million)^0.5~(tal$people_vaccinated_per_hundred + tal$gdp_per_capita + tal$population_density + median_age +  extreme_poverty)^2,data=tal)
+summary(full_model2)
+```
+
+```{r}
+reduced_model=lm(I(total_cases_per_million)^0.4~1,data=tal)
+Model.AIC=stepAIC (reduced_model, scope = list(upper = full_model2, lower= ~1, direction = "forward",k = 2,trace=F))
+```
+```{r}
+par(mfrow=c(2,2))
+plot(Model.AIC)
+summary(Model.AIC)
+```
+
+Linear model of new cases
+```{r}
+covid_week$new_cases_smoothed_per_million[which(covid_week$new_cases_smoothed_per_million==0)]=0.01
+covid_week$new_deaths_smoothed[which(covid_week$new_deaths_smoothed==0)]=0.01
+```
+```{r}
+model_new_cases=lm(covid_week$new_cases_smoothed_per_million~covid_week$week+covid_week$people_vaccinated_per_hundred+covid_week$median_age+covid_week$gdp_per_capita+covid_week$gdp_per_capita+covid_week$population_density+covid_week$extreme_poverty)
+```
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(model_new_cases)
+```
+
+I did a box-cox transformation to the new cases detected everyday to make the new case to be normal distributed.
+```{r}
+library("MASS")
+boxcox(model_new_cases)
+```
+
+```{r}
+model_new_cases2=lm(I(covid_week$new_cases_smoothed_per_million)^0.1~covid_week$week+covid_week$people_vaccinated_per_hundred+covid_week$median_age+covid_week$gdp_per_capita+covid_week$gdp_per_capita)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(model_new_cases2)
+```
+
+```{r}
+summary(model_new_cases2)
+```
+
+To dicuss the interaction terms. I use BIC method again.
+```{r}
+model_new_cases3_2=lm(I(covid_week$new_cases_smoothed_per_million)^0.1~(covid_week$week+covid_week$people_vaccinated_per_hundred+covid_week$median_age+covid_week$gdp_per_capita+covid_week$gdp_per_capita)^2)
+```
+
+```{r}
+reduced_model2=lm(I(covid_week$new_cases_smoothed_per_million)^0.1~1)
+Model.AIC2=stepAIC (reduced_model2, scope = list(upper = model_new_cases3_2, lower= ~1, direction = "both",k = 2,trace=F))
+```
+```{r}
+summary(Model.AIC2)
+```
+```{r}
+model_new_death=lm(covid_week$new_deaths_smoothed~covid_week$week+covid_week$people_vaccinated_per_hundred+covid_week$median_age+covid_week$gdp_per_capita+covid_week$gdp_per_capita+covid_week$population_density+covid_week$extreme_poverty)
+par(mfrow=c(2,2))
+plot(model_new_death)
+```
+```{r}
+boxcox(model_new_death)
+```
+```{r}
+model_new_death2=lm(log(covid_week$new_deaths_smoothed)~covid_week$week+covid_week$people_vaccinated_per_hundred+covid_week$median_age+covid_week$gdp_per_capita+covid_week$gdp_per_capita+covid_week$population_density+covid_week$extreme_poverty)
+```
+```{r}
+par(mfrow=c(2,2))
+plot(model_new_death2)
+```
+```{r}
+summary(model_new_death2)
+```
+
+```{r}
+model_new_death3=lm(log(covid_week$new_deaths_smoothed)~(covid_week$week+covid_week$people_vaccinated_per_hundred+covid_week$median_age+covid_week$gdp_per_capita+covid_week$gdp_per_capita)^2)
+```
+
+```{r}
+reduced_model3=lm(log(covid_week$new_deaths_smoothed)~1)
+Model.AIC3=stepAIC (reduced_model3, scope = list(upper = model_new_death3, lower= ~1, direction = "both",k = 2,trace=F))
+```
+```{r}
+summary(Model.AIC3)
+```
+
+result
+===============
+From the box-plot we can tell that the amount of total cases, death cases, and GDP level are very different in different countries and continents. Therefore we well go on to explore the relationships between these variables. The pie plot also show that the poverty rate and the poverty rate, the affection rate and the death rate are very different in different continents.
+
+In Model.AIC. It seems that in the model selected by AIC method. The total effected numbers are most correlated with the median age and the extreme poverty rate of the country.
+
+Model_new_cases2 doesn't include any interaction terms. It gives the prediction of the new case that are detected based on the time, vaccinated rate, median age and the gdp level. The estimators show that New detected cases increase over time and decrease when the vaccinated rate is higher. Countries with high median age tend to have more detected cases. GDP also have a positive affect to the number of new cases. The reason may be countries with higher GDP may have a better medical system which help to detect and report new cases.
+
+In model_new_death2 we can see that the new death increase during the time. Death are less in those countries with a higher vaccination rate and will be higher in countries with larger median age. Better economic can also help to lower the death rate.
+
+From the interaction terms in AIC models we can see that the vaccination rate increase during the time. GDP is correlated with the vaccination rate.
